@@ -9,3 +9,5 @@ Tutorials will cover training, evaluation, and inferencing for the following mod
     - [CheXNet: Classification of Thoracic Diseases From Chest X-ray Images](https://github.com/HabanaAI/Gaudi-solutions/blob/master/healthcare/chexnet.ipynb)
 - **FinTech**
     - [FinBERT: Financial Sentiment Analysis using Language Models](https://github.com/HabanaAI/Gaudi-solutions/blob/master/fintech/finbert.ipynb)
+- **Retail**
+    - [Retail: Fine Tuning Image Detection for Retail Items using YOLOX](https://github.com/HabanaAI/Gaudi-solutions/blob/master/retail/Habana_Retail_Solution.ipynb)
