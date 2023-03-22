@@ -11,3 +11,6 @@ Tutorials will cover training, evaluation, and inferencing for the following mod
     - [FinBERT: Financial Sentiment Analysis using Language Models](https://github.com/HabanaAI/Gaudi-solutions/blob/master/fintech/finbert.ipynb)
 - **Retail**
     - [Retail: Fine Tuning Image Detection for Retail Items using YOLOX](https://github.com/HabanaAI/Gaudi-solutions/blob/master/retail/Habana_Retail_Solution.ipynb)
+- **Autonomous Driving**
+    - [Autonomous Driving: Semantic Segmentation using PyTorch UNet 2D](https://github.com/HabanaAI/Gaudi-solutions/blob/master/autonomous_driving/Autonomous_Driving_Solution.ipynb)
+
