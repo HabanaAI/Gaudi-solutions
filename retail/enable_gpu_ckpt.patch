@@ -1,0 +1,21 @@
+diff --git a/PyTorch/computer_vision/detection/yolox/yolox/core/trainer.py b/PyTorch/computer_vision/detection/yolox/yolox/core/trainer.py
+index c4edff5..e3a401a 100644
+--- a/PyTorch/computer_vision/detection/yolox/yolox/core/trainer.py
++++ b/PyTorch/computer_vision/detection/yolox/yolox/core/trainer.py
+@@ -219,6 +219,7 @@ class Trainer:
+ 
+         # value of epoch will be set in `resume_train`
+         model = self.resume_train(model)
++        model.to(self.device)
+ 
+         # data related init
+         self.no_aug = self.start_epoch >= self.max_epoch - self.exp.no_aug_epochs
+@@ -429,7 +430,7 @@ class Trainer:
+             if self.args.ckpt is not None:
+                 logger.info("loading checkpoint for fine tuning")
+                 ckpt_file = self.args.ckpt
+-                ckpt = torch.load(ckpt_file, map_location=self.device)["model"]
++                ckpt = torch.load(ckpt_file, map_location='cpu')["model"]
+                 model = load_ckpt(model, ckpt)
+             self.start_epoch = 0
+ 
