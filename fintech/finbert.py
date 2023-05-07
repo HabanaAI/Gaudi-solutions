@@ -1,13 +1,16 @@
-import pandas as pd 
-import numpy as np
+import sys
+import subprocess
 
-from transformers import BertTokenizer, Trainer, BertForSequenceClassification, TrainingArguments
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 
+'numpy', ' pandas', ' scikit-learn', 'datasets', 'optimum.habana', '--user'])
+
+import pandas as pd
+import numpy as np
+from transformers import AutoConfig, AutoTokenizer, AutoModelForSequenceClassification
+from optimum.habana import GaudiConfig, GaudiTrainer, GaudiTrainingArguments
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from datasets import Dataset
-
-from habana_frameworks.torch.utils.library_loader import load_habana_module
-load_habana_module()
 
 
 def load_data():
@@ -39,8 +42,8 @@ def compute_metrics(eval_pred):
 def main():
     dataset_train, dataset_val, dataset_test = load_data()
 
-    bert_model = BertForSequenceClassification.from_pretrained('bert-large-uncased', num_labels=3)
-    bert_tokenizer = BertTokenizer.from_pretrained('bert-large-uncased')
+    bert_model = AutoModelForSequenceClassification.from_pretrained('bert-large-uncased', num_labels=3)
+    bert_tokenizer = AutoTokenizer.from_pretrained('bert-large-uncased')
 
     dataset_train = dataset_train.map(lambda e: bert_tokenizer(e['sentence'], truncation=True, padding='max_length', max_length=128), batched=True)
     dataset_val = dataset_val.map(lambda e: bert_tokenizer(e['sentence'], truncation=True, padding='max_length', max_length=128), batched=True)
@@ -50,7 +53,7 @@ def main():
     dataset_val.set_format(type='torch', columns=['input_ids', 'token_type_ids', 'attention_mask', 'label'])
     dataset_test.set_format(type='torch', columns=['input_ids', 'token_type_ids', 'attention_mask', 'label'])
 
-    args = TrainingArguments(
+    args = GaudiTrainingArguments(
         output_dir='temp/',
         overwrite_output_dir=True,
         evaluation_strategy='epoch',
@@ -66,13 +69,13 @@ def main():
         weight_decay=0.01,
         metric_for_best_model='accuracy',
 
-        use_habana=True,                   # use Habana device
-        use_lazy_mode=True,                # use Gaudi lazy mode
-        use_fused_adam=True,               # used optimised version of Adam for Gaudi
-        use_fused_clip_norm=True,          # use Habana's fused gradient norm clipping operator
+        use_habana=True,                        # use Habana device
+        use_lazy_mode=True,                     # use Gaudi lazy mode
+        use_hpu_graphs=True,                    # set value for hpu_graphs
+        gaudi_config_name='gaudi_config.json',  # load config file
     )
 
-    trainer = Trainer(
+    trainer = GaudiTrainer(
         model=bert_model,                   # the instantiated 🤗 Transformers model to be trained
         args=args,                          # training arguments, defined above
         train_dataset=dataset_train,        # training dataset

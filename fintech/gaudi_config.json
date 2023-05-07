@@ -1,0 +1,28 @@
+{
+  "use_habana_mixed_precision": false,
+  "hmp_is_verbose": false,
+  "use_fused_adam": true,
+  "use_fused_clip_norm": true,
+  "hmp_bf16_ops": [
+    "add",
+    "addmm",
+    "bmm",
+    "div",
+    "dropout",
+    "gelu",
+    "iadd",
+    "linear",
+    "layer_norm",
+    "matmul",
+    "mm",
+    "rsub",
+    "softmax",
+    "truediv"
+  ],
+  "hmp_fp32_ops": [
+    "embedding",
+    "nll_loss",
+    "log_softmax",
+    "cross_entropy"
+  ]
+}
