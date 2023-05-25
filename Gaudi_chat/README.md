@@ -39,7 +39,7 @@ cd Gaudi-Solutions/Gaudi_chat/
 ```
 Now, everything is set up and it’s time to chat!  We’ll launch the FastChat server application which will pull the Dolly2.0 model from the Hugging Face hub.  Since Gaudi2 has 96GB of HBM memory, it can run the full 12B parameter model.   The First-gen Gaudi with 32GB, can run the 3B parameter model.  
 
-After you launch the FastChat Server you will see an “### Instruction” prompt, where you will be able to enter prompts and questions.   Type   `clear`  in the prompt to clear the queue and start over.   Type  `enter` at an empty prompt to stop the chat server.  
+After you launch the FastChat Server you will see an “### Instruction” prompt, where you will be able to enter prompts and questions.   Type   `clear`  in the prompt to clear the queue and start over.   Hit the enter key on your keyboard at an empty prompt to stop the chat server.  
 
 ### Chat on Gaudi2 
 
