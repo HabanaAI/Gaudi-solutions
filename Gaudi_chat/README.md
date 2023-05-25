@@ -1,334 +1,110 @@
-# FastChat
-An open platform for training, serving, and evaluating large language model based chatbots.
+<small>Copyright (c) 2023 Habana Labs, Ltd. an Intel Company.</small>
 
-## Release
+#### Licensed under the Apache License, Version 2.0 (the "License");
+<small>You may not use this file except in compliance with the License. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.</small>
 
-<p align="center">
-<a href="https://vicuna.lmsys.org"><img src="assets/vicuna_logo.jpeg" width="20%"></a>
-</p>
 
-- 🔥 We released **Vicuna: An Open-Source Chatbot Impressing GPT-4 with 90% ChatGPT Quality**. Checkout the blog [post](https://vicuna.lmsys.org) and [demo](https://chat.lmsys.org/).
+# FastChat with Dolly 2.0 on Habana Gaudi 
+This example shows a fully interactive chatbot experience using the open-source Dolly 2.0 model published by Databricks, adapted to run on Gaudi2 and first-Gen Gaudi AI accelerators.  For the chat platform, we are using an open-source chatbot app and model server called FastChat published by LMSYS.   
 
-<a href="https://chat.lmsys.org"><img src="assets/demo_narrow.gif" width="70%"></a>
+The Dolly 2.0 model is a recent open-source LLM that is licensed for both research and commercial use. Dolly 2.0  has 12 billion parameters which is much smaller compared 175 billion of GPT3, and even more for ChatGPT. This means faster and cheaper finetuning on your own data, and of course faster inference times as well.  Gaudi’s cost performance advantage over GPUs makes it even faster and more cost efficient. 
 
-Join our [Discord](https://discord.gg/h6kCZb72G7) server and follow our [Twitter](https://twitter.com/lmsysorg) to get the latest updates.
+## Set Up the Environment 
+Set up your cloud computing environment to get access to the first-gen Gaudi or Gaudi2 accelerator.  There are two options available in the cloud today:  
 
-## Contents
-- [Install](#install)
-- [Vicuna Weights](#vicuna-weights)
-- [Inference with Command Line Interface](#inference-with-command-line-interface)
-- [Serving with Web GUI](#serving-with-web-gui)
-- [API](#api)
-- [Evaluation](#evaluation)
-- [Fine-tuning](#fine-tuning)
+ - Amazon EC2 DL1 Instances: based on first-gen Gaudi 
+   - https://aws.amazon.com/ec2/instance-types/dl1/ 
+   - Users can refer to Habana’s quick start guide [here](https://docs.habana.ai/en/latest/AWS_EC2_DL1_and_PyTorch_Quick_Start/AWS_EC2_DL1_and_PyTorch_Quick_Start.html) for instructions on how to start a DL1 instance; an AWS user account is required.  
 
-## Install
+ - Intel Developer Cloud using Gaudi2 
+   - https://developer.habana.ai/intel-developer-cloud 
+   - Instructions are provided on the Developer page; a user account will need to be created.   
 
-### Method 1: With pip
+Once you have an instance running, you will need to get the latest PyTorch Docker Image from the Habana Vault, see our [installation guide](https://docs.habana.ai/en/latest/Installation_Guide/Bare_Metal_Fresh_OS.html#pull-prebuilt-containers) for more information. 
 
-```bash
-pip3 install fschat
+## Running the model 
+To run the model, you will need to follow the instructions below. 
+
+#### Start a Habana PyTorch Docker container 
+```
+docker pull vault.habana.ai/gaudi-docker/1.9.0/ubuntu20.04/habanalabs/pytorch-installer-1.13.1:latest
+docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_vader_single_copy_mechanism=none --cap-add=sys_nice --net=host --ipc=host  vault.habana.ai/gaudi-docker/1.9.0/ubuntu20.04/habanalabs/pytorch-installer-1.13.1:latest
+```
+#### Clone the Gaudi-Solutions GitHub Repository to your $HOME directory and install the FastChat Application 
+```
+cd ~
+git clone https://github.com/habanaai/Gaudi-Solutions 
+cd Gaudi-Solutions/Gaudi_chat/ 
+./install.sh  # this will install the FastChat application 
+```
+Now, everything is set up and it’s time to chat!  We’ll launch the FastChat server application which will pull the Dolly2.0 model from the Hugging Face hub.  Since Gaudi2 has 96GB of HBM memory, it can run the full 12B parameter model.   The First-gen Gaudi with 32GB, can run the 3B parameter model.  
+
+After you launch the FastChat Server you will see an “### Instruction” prompt, where you will be able to enter prompts and questions.   Type   `clear`  in the prompt to clear the queue and start over.   Type  `enter` at an empty prompt to stop the chat server.  
+
+### Chat on Gaudi2 
+
+In this case, we are using the databricks/dolly-v2-12b model from the HuggingFace Hub.  
+```
+python -m fastchat.serve.cli --model-path databricks/dolly-v2-12b  --device hpu  --use_cache --temperature 0.7 --use_graphs --static_shapes  --output_tps --conv-template dolly
 ```
 
-### Method 2: From source
-
-1. Clone this repository and navigate to the FastChat folder
-```bash
-git clone https://github.com/lm-sys/FastChat.git
-cd FastChat
+```
+Downloading (…)lve/main/config.json: 100%█  819/819 [00:00<00:00, 62.0kB/s] 
+Downloading (…)okenizer_config.json: 100%|█| 450/450 [00:00<00:00, 225kB/s] 
+Downloading (…)/main/tokenizer.json: 100%|█| 2.11M/2.11M [00:00<00:00, 5.82MB/s] 
+Downloading (…)cial_tokens_map.json: 100%|█| 228/228 [00:00<00:00, 136kB/s] 
+Downloading pytorch_model.bin:   100%|█| 23.8G/23.8G [4:00<04:00, 16.2MB/s] 
+### Instruction: Can you make an Itinerary for a trip to Orlando?  Make it 4 days long. 
+### Response: Day 1: 
+- Go to Universal Studios 
+- Go to SeaWorld 
+- Eat lunch at Shake Shack 
+- Rattle your brain at The Harry Potter Experience 
+- Watch the sunset over Orlando 
+Day 2: 
+- Go to Epcot 
+- Visit the Future World, and ride Soarin' 
+- Visit the World Showcase 
+- Eat dinner at Paddlefish 
+Day 3: 
+- Go to Disney Springs 
+- Shop at the Marketplace 
+- Eat at Via Carota 
+Day 4: 
+- Go to Sea Life Aquarium 
+- Eat dinner at Redz Barn 
+- Watch the fireworks show at Universal Studios 
+------------------------------------------- 
+Time: 3.743     Tokens: 138     TPS: 36.87 
+------------------------------------------- 
+```
+### Chat on First-gen Gaudi 
+In this case, we are using the databricks/dolly-v2-3b model from the HuggingFace Hub. 
+```
+python -m fastchat.serve.cli --model-path databricks/dolly-v2-3b  --device hpu  --use_cache --temperature 0.7 --use_graphs --static_shapes  --output_tps  --conv-template dolly 
 ```
 
-If you are running on Mac:
-```bash
-brew install rust cmake
 ```
-
-2. Install Package
-```bash
-pip3 install --upgrade pip  # enable PEP 660 support
-pip3 install -e .
+Downloading pytorch_model.bin:   100%|█| 5.68G/5.68G [4:00<04:00, 16.2MB/s] 
+### Instruction: Write a recipe to make chocolate chip cookies 
+### Response: 1/2 c softened butter 
+4 tbs brown sugar 
+2 eggs 
+1 Tbs vanilla 
+3/4 c white sugar 
+2 c white chocolate chips 
+2 c chocolate chips 
+1 c semi sweet chips 
+3 c all purpose flour 
+1 t baking soda 
+1/4 tsp salt 
+1/2 tsp baking powder 
+1/2 c semi sweet chocolate chips to garnish 
+------------------------------------------- 
+Time: 2.738     Tokens: 82      TPS: 29.95 
+------------------------------------------- 
 ```
+## Next Steps 
+Customers who want to use a chatbot like FastChat/Dolly2.0 with their own proprietary data and deploy LLMs on-premise can take advantage of Gaudi2’s performance, cost and power efficiency.  We’ve also demonstrated Gaudi2 inference performance on larger models such as the open source 176B parameter BLOOMz model; check out the blog [here](https://developer.habana.ai/blog/fast-inference-on-large-language-models-bloomz-on-habana-gaudi2-accelerator).   
 
-## Vicuna Weights
-We release [Vicuna](https://vicuna.lmsys.org/) weights as delta weights to comply with the LLaMA model license.
-You can add our delta to the original LLaMA weights to obtain the Vicuna weights. Instructions:
-
-1. Get the original LLaMA weights in the huggingface format by following the instructions [here](https://huggingface.co/docs/transformers/main/model_doc/llama).
-2. Use the following scripts to get Vicuna weights by applying our delta. They will automatically download delta weights from our Hugging Face [account](https://huggingface.co/lmsys).
-
-**NOTE**:
-Weights v1.1 are only compatible with ```transformers>=4.28.0``` and ``fschat >= 0.2.0``.
-Please update your local packages accordingly. If you follow the above commands to do a fresh install, then you should get all the correct versions.
-
-### Vicuna-7B
-This conversion command needs around 30 GB of CPU RAM.
-See the "Low CPU Memory Conversion" section below if you do not have enough memory.
-```bash
-python3 -m fastchat.model.apply_delta \
-    --base /path/to/llama-7b \
-    --target /output/path/to/vicuna-7b \
-    --delta lmsys/vicuna-7b-delta-v1.1
-```
-
-### Vicuna-13B
-This conversion command needs around 60 GB of CPU RAM.
-See the "Low CPU Memory Conversion" section below if you do not have enough memory.
-```bash
-python3 -m fastchat.model.apply_delta \
-    --base /path/to/llama-13b \
-    --target /output/path/to/vicuna-13b \
-    --delta lmsys/vicuna-13b-delta-v1.1
-```
-
-### Old weights
-See [docs/weights_version.md](docs/weights_version.md) for all versions of weights and their differences.
-
-
-### Low CPU Memory Conversion
-You can try these methods to reduce the CPU RAM requirement of weight conversion.
-1. Append `--low-cpu-mem` to the commands above, which will split large weight files into smaller ones and use the disk as temporary storage. This can keep the peak memory at less than 16GB.
-2. Create a large swap file and rely on the operating system to automatically utilize the disk as virtual memory.
-
-## Inference with Command Line Interface
-
-(Experimental Feature: You can specify `--style rich` to enable rich text output and better text streaming quality for some non-ASCII content. This may not work properly on certain terminals.)
-
-<a href="https://chat.lmsys.org"><img src="assets/screenshot_cli.png" width="70%"></a>
-
-#### Single GPU
-The command below requires around 28GB of GPU memory for Vicuna-13B and 14GB of GPU memory for Vicuna-7B.
-See the "No Enough Memory" section below if you do not have enough memory.
-```
-python3 -m fastchat.serve.cli --model-path /path/to/vicuna/weights
-```
-
-#### Multiple GPUs
-You can use model parallelism to aggregate GPU memory from multiple GPUs on the same machine.
-```
-python3 -m fastchat.serve.cli --model-path /path/to/vicuna/weights --num-gpus 2
-```
-
-#### CPU Only
-This runs on the CPU only and does not require GPU. It requires around 60GB of CPU memory for Vicuna-13B and around 30GB of CPU memory for Vicuna-7B.
-```
-python3 -m fastchat.serve.cli --model-path /path/to/vicuna/weights --device cpu
-```
-
-#### Metal Backend (Mac Computers with Apple Silicon or AMD GPUs)
-Use `--device mps` to enable GPU acceleration on Mac computers (requires torch >= 2.0).
-Use `--load-8bit` to turn on 8-bit compression.
-```
-python3 -m fastchat.serve.cli --model-path /path/to/vicuna/weights --device mps --load-8bit
-```
-Vicuna-7B can run on a 32GB M1 Macbook with 1 - 2 words / second.
-
-
-#### No Enough Memory or Other Platforms
-If you do not have enough memory, you can enable 8-bit compression by adding `--load-8bit` to commands above.
-This can reduce memory usage by around half with slightly degraded model quality.
-It is compatible with the CPU, GPU, and Metal backend.
-Vicuna-13B with 8-bit compression can run on a single NVIDIA 3090/4080/V100(16GB) GPU.
-
-```
-python3 -m fastchat.serve.cli --model-path /path/to/vicuna/weights --load-8bit
-```
-
-Besides, we are actively exploring more methods to make the model easier to run on more platforms.
-Contributions and pull requests are welcome.
-
-## Serving with Web GUI
-
-<a href="https://chat.lmsys.org"><img src="assets/screenshot_gui.png" width="70%"></a>
-
-To serve using the web UI, you need three main components: web servers that interface with users, model workers that host one or more models, and a controller to coordinate the webserver and model workers. Here are the commands to follow in your terminal:
-
-#### Launch the controller
-```bash
-python3 -m fastchat.serve.controller
-```
-
-This controller manages the distributed workers.
-
-#### Launch the model worker
-```bash
-python3 -m fastchat.serve.model_worker --model-path /path/to/vicuna/weights
-```
-Wait until the process finishes loading the model and you see "Uvicorn running on ...". You can launch multiple model workers to serve multiple models concurrently. The model worker will connect to the controller automatically.
-
-To ensure that your model worker is connected to your controller properly, send a test message using the following command:
-```bash
-python3 -m fastchat.serve.test_message --model-name vicuna-13b
-```
-
-#### Launch the Gradio web server
-```bash
-python3 -m fastchat.serve.gradio_web_server
-```
-
-This is the user interface that users will interact with.
-
-By following these steps, you will be able to serve your models using the web UI. You can open your browser and chat with a model now.
-
-
-## API
-
-### Huggingface Generation APIs
-See [fastchat/serve/huggingface_api.py](fastchat/serve/huggingface_api.py)
-
-### OpenAI-compatible RESTful APIs & SDK
-
-(Experimental. We will keep improving the API and SDK.)
-
-#### Chat Completion
-
-Reference: https://platform.openai.com/docs/api-reference/chat/create
-
-Some features/compatibilities to be implemented:
-
-- [ ] streaming
-- [ ] support of some parameters like `top_p`, `presence_penalty`
-- [ ] proper error handling (e.g. model not found)
-- [ ] the return value in the client SDK could be used like a dict
-
-
-**RESTful API Server**
-
-First, launch the controller
-
-```bash
-python3 -m fastchat.serve.controller
-```
-
-Then, launch the model worker(s)
-
-```bash
-python3 -m fastchat.serve.model_worker --model-name 'vicuna-7b-v1.1' --model-path /path/to/vicuna/weights
-```
-
-Finally, launch the RESTful API server
-
-```bash
-export FASTCHAT_CONTROLLER_URL=http://localhost:21001
-python3 -m fastchat.serve.api --host localhost --port 8000
-```
-
-Test the API server
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "vicuna-7b-v1.1",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
-
-**Client SDK**
-
-Assuming environment variable `FASTCHAT_BASEURL` is set to the API server URL (e.g., `http://localhost:8000`), you can use the following code to send a request to the API server:
-
-```python
-import os
-from fastchat import client
-
-client.set_baseurl(os.getenv("FASTCHAT_BASEURL"))
-
-completion = client.ChatCompletion.create(
-  model="vicuna-7b-v1.1",
-  messages=[
-    {"role": "user", "content": "Hello!"}
-  ]
-)
-
-print(completion.choices[0].message)
-```
-
-## Evaluation
-
-Our AI-enhanced evaluation pipeline is based on GPT-4. This section provides a high-level summary of the pipeline. For detailed instructions, please refer to the [evaluation](fastchat/eval) documentation.
-
-### Pipeline Steps
-
-1. Generate answers from different models: Use `qa_baseline_gpt35.py` for ChatGPT, or specify the model checkpoint and run `get_model_answer.py` for Vicuna and other models.
-
-2. Generate reviews with GPT-4: Use GPT-4 to generate reviews automatically. This step can also be performed manually if the GPT-4 API is not available to you.
-
-3. Generate visualization data: Run `generate_webpage_data_from_table.py` to generate data for a static website, which allows you to visualize the evaluation data.
-
-4. Visualize the data: Serve a static website under the `webpage` directory. You can use `python3 -m http.server` to serve the website locally.
-
-### Data Format and Contribution
-
-We use a data format encoded with JSON Lines for evaluation. The format includes information on models, prompts, reviewers, questions, answers, and reviews.
-
-You can customize the evaluation process or contribute to our project by accessing the relevant [data](fastchat/eval/table/).
-
-For detailed instructions, please refer to the [evaluation](fastchat/eval) documentation.
-
-## Fine-tuning
-### Data
-
-Vicuna is created by fine-tuning a LLaMA base model using approximately 70K user-shared conversations gathered from ShareGPT.com with public APIs. To ensure data quality, we convert the HTML back to markdown and filter out some inappropriate or low-quality samples. Additionally, we divide lengthy conversations into smaller segments that fit the model's maximum context length. For detailed instructions to clean the ShareGPT data, check out [here](docs/commands/data_cleaning.md).
-
-Due to some concerns, we may not release the ShareGPT dataset at the moment. If you would like to try the fine-tuning code, you can run it with some dummy questions in [dummy.json](playground/data/dummy.json). You can follow the same format and plug in your own data.
-
-### Code and Hyperparameters
-Our code is based on [Stanford Alpaca](https://github.com/tatsu-lab/stanford_alpaca) with additional support for multi-round conversations.
-We use similar hyperparameters as the Stanford Alpaca.
-
-| Hyperparameter | Global Batch Size | Learning rate | Epochs | Max length | Weight decay |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Vicuna-13B | 128 | 2e-5 | 3 | 2048 | 0 |
-
-### Fine-tuning Vicuna-7B with Local GPUs
-You can use the following command to train Vicuna-7B with 4 x A100 (40GB).
-```bash
-torchrun --nproc_per_node=4 --master_port=20001 fastchat/train/train_mem.py \
-    --model_name_or_path ~/model_weights/llama-7b  \
-    --data_path playground/data/dummy.json \
-    --bf16 True \
-    --output_dir output \
-    --num_train_epochs 3 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 2 \
-    --gradient_accumulation_steps 16 \
-    --evaluation_strategy "no" \
-    --save_strategy "steps" \
-    --save_steps 1200 \
-    --save_total_limit 10 \
-    --learning_rate 2e-5 \
-    --weight_decay 0. \
-    --warmup_ratio 0.03 \
-    --lr_scheduler_type "cosine" \
-    --logging_steps 1 \
-    --fsdp "full_shard auto_wrap" \
-    --fsdp_transformer_layer_cls_to_wrap 'LlamaDecoderLayer' \
-    --tf32 True \
-    --model_max_length 2048 \
-    --gradient_checkpointing True \
-    --lazy_preprocess True
-```
-
-If you meet out-of-memory during model saving, see solutions [here](https://github.com/pytorch/pytorch/issues/98823).
-
-### Fine-tuning on Any Cloud with SkyPilot
-[SkyPilot](https://github.com/skypilot-org/skypilot) is a framework built by UC Berkeley for easily and cost effectively running ML workloads on any cloud (AWS, GCP, Azure, Lambda, etc.). 
-To use SkyPilot, install it with the following command and setup the cloud credentials locally following the instructions [here](https://skypilot.readthedocs.io/en/latest/getting-started/installation.html).
-```bash
-# Install skypilot from the master branch
-pip install git+https://github.com/skypilot-org/skypilot.git
-```
-#### Vicuna
-Vicuna can be trained on 8 A100 GPUs with 80GB memory. The following command will automatically launch a node satisfying the requirement, setup and run the training job on it.
-```bash
-sky launch -c vicuna -s scripts/train-vicuna.yaml --env WANDB_API_KEY
-```
-Other options are also valid:
-```bash
-# Launch it on managed spot to save 3x cost (train Vicuna-13B with around $300)
-sky spot launch -n vicuna scripts/train-vicuna.yaml --env WANDB_API_KEY
-
-# Train a 7B model
-sky launch -c vicuna -s scripts/train-vicuna.yaml --env WANDB_API_KEY --env MODEL_SIZE=7
-```
-Note: Please make sure the `WANDB_API_KEY` has been setup on your local machine. You can find the API key on your [wandb profile page](https://wandb.ai/authorize). If you would like to train the model without using wandb, you can replace the `--env WANDB_API_KEY` flag with `--env WANDB_MODE=offline`.
+You can sign up for access to Gaudi2 on the Intel Developer Cloud and experiment with FastChat/Dolly2.0. 
