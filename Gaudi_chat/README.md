@@ -35,9 +35,10 @@ docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_va
 cd ~
 git clone https://github.com/habanaai/Gaudi-Solutions 
 cd Gaudi-Solutions/Gaudi_chat/ 
-./install.sh  # this will install the FastChat application 
+pip3 install --upgrade pip
+pip3 install -e . 
 ```
-Now, everything is set up and it’s time to chat!  We’ll launch the FastChat server application which will pull the Dolly2.0 model from the Hugging Face hub.  Since Gaudi2 has 96GB of HBM memory, it can run the full 12B parameter model.   The First-gen Gaudi with 32GB, can run the 3B parameter model.  
+Now, everything is set up and it’s time to chat!  We’ll launch the FastChat server application which will pull the Dolly2.0 model from the Hugging Face hub.  Since Gaudi2 has 96GB of HBM memory, it can run the full 12B parameter model.   The First-gen Gaudi with 32GB, can run the 3B parameter model.  Note that the very first prompt will take a longer time becuase the Graph is being compiled for execution. 
 
 After you launch the FastChat Server you will see an “### Instruction” prompt, where you will be able to enter prompts and questions.   Type   `clear`  in the prompt to clear the queue and start over.   Hit the enter key on your keyboard at an empty prompt to stop the chat server.  
 
