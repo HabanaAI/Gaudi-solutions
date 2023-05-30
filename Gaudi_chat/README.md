@@ -27,8 +27,8 @@ To run the model, you will need to follow the instructions below.
 
 #### Start a Habana PyTorch Docker container 
 ```
-docker pull vault.habana.ai/gaudi-docker/1.9.0/ubuntu20.04/habanalabs/pytorch-installer-1.13.1:latest
-docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_vader_single_copy_mechanism=none --cap-add=sys_nice --net=host --ipc=host  vault.habana.ai/gaudi-docker/1.9.0/ubuntu20.04/habanalabs/pytorch-installer-1.13.1:latest
+docker pull vault.habana.ai/gaudi-docker/1.10.0/ubuntu20.04/habanalabs/pytorch-installer-2.0.1:latest
+docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_vader_single_copy_mechanism=none --cap-add=sys_nice --net=host --ipc=host  vault.habana.ai/gaudi-docker/1.10.0/ubuntu20.04/habanalabs/pytorch-installer-2.0.1:latest
 ```
 #### Clone the Gaudi-Solutions GitHub Repository to your $HOME directory and install the FastChat Application 
 ```
@@ -39,6 +39,8 @@ pip3 install --upgrade pip
 pip3 install -e . 
 ```
 Now, everything is set up and it’s time to chat!  We’ll launch the FastChat server application which will pull the Dolly2.0 model from the Hugging Face hub.  Since Gaudi2 has 96GB of HBM memory, it can run the full 12B parameter model.   The First-gen Gaudi with 32GB, can run the 3B parameter model.  Note that the very first prompt will take a longer time becuase the Graph is being compiled for execution. 
+
+Users acknowledge and understand that by downloading the checkpoint referenced herein they will be required to comply with third party licenses and rights pertaining to the checkpoint, and users will be solely liable and responsible for complying with any applicable licenses. Habana Labs disclaims any warranty or liability with respect to users' use or compliance with such third party licenses.
 
 After you launch the FastChat Server you will see an “### Instruction” prompt, where you will be able to enter prompts and questions.   Type   `clear`  in the prompt to clear the queue and start over.   Hit the enter key on your keyboard at an empty prompt to stop the chat server.  
 
