@@ -127,8 +127,7 @@ class A2D2(torch.utils.data.Dataset):
             get_masks(label_image, color, class_id)
             for color, class_id in self.color_id
         ]
-        masks = np.maximum.reduce(masks_list, keepdims=True) #np.expand_dims(np.add.reduce(masks_list))#axis=-3) #[BS,H,W]->[BS,1,H,W] #torch.cat(masks_list).byte()
-        #each pixel's value is between 0 and 6 corresponding to the class 
+        masks = np.maximum.reduce(masks_list, keepdims=True)
 
         return masks
 
@@ -231,7 +230,7 @@ class NNUnetA2D2(NNUnet):
             negative_slope=self.args.negative_slope,
             deep_supervision=self.args.deep_supervision,
             )
-        ####
+
         self.loss = Loss(self.args.focal)
         self.dice = Dice(self.n_class)
         self.best_sum = 0
@@ -282,7 +281,6 @@ class NNUnetA2D2(NNUnet):
     def forward(self, img):
         return self.model(img)
 
-from pytorch.habana_hmp import HPUPrecision
 from pytorch.trainer import Trainer
 from pytorch.early_stopping_unet import EarlyStopping
 
@@ -326,7 +324,7 @@ class TrainerA2D2(Trainer):
                     time_2 = time.time()
                     time_interval = time_2 - time_1
                     print(f"End epoch: {self.current_epoch} with time interval: {time_interval:.3f} secs")
-      
+
                 if self.current_epoch >= model.args.min_epochs:
                      self.earlystopping.on_validation_end(self, val_output['dice_sum'])
                      if self.earlystopping.stopped_epoch == self.current_epoch:
@@ -410,7 +408,6 @@ if __name__ == "__main__":
     parser.add_argument('--gradient_clip', action="store_true", help="Enable gradient_clip to improve training stability")
     parser.add_argument('--progress_bar_refresh_rate', type=int, default=25, help="set progress_bar_refresh_rate")
     parser.add_argument('--run_lazy_mode', action="store_false", help="Use lazy mode")
-    parser.add_argument('--hmp-verbose', action='store_true', help='Enable verbose mode for hmp')
     parser.add_argument('--skip_first_n_eval', type=int, default=0, help="Skip the evaluation for the first n epochs.")
     parser.add_argument('--val_batch_size', type=int, default=64, help="Validation batch size")
     parser.add_argument("--steps", nargs="+", required=False, help="Steps for multistep scheduler")
