@@ -4,7 +4,7 @@
 <small>You may not use this file except in compliance with the License. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.</small>
 
 
-# FastChat with Dolly 2.0 on Habana&reg; Gaudi&reg;
+# FastChat with Dolly 2.0 on Intel&reg; Gaudi&reg; AI Accelerator
 This example shows a fully interactive chatbot experience using the open-source Dolly 2.0 model published by Databricks, adapted to run on Gaudi2 and first-Gen Gaudi AI accelerators.  For the chat platform, we are using an open-source chatbot app and model server called FastChat published by LMSYS.   
 
 The Dolly 2.0 model is a recent open-source LLM that is licensed for both research and commercial use. Dolly 2.0  has 12 billion parameters which is much smaller compared 175 billion of GPT3, and even more for ChatGPT. This means faster and cheaper finetuning on your own data, and of course faster inference times as well.  Gaudi’s cost performance advantage over GPUs makes it even faster and more cost efficient. 
