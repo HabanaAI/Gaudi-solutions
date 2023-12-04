@@ -1,2 +1,2 @@
-python -m fastchat.serve.cli --model-path databricks/dolly-v2-3b --device hpu  --use_cache --temperature 0.7 --use_graphs --static_shapes  --output_tps --seed 12345 --conv-template dolly
+python -m fastchat.serve.cli --model-path meta-llama/Llama-2-7b-chat-hf --device hpu --use_cache --temperature 0.7 --use_graphs --static_shapes --output_tps --conv-template llama2
 
