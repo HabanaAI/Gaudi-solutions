@@ -7,6 +7,7 @@ class SeparatorStyle(Enum):
     """Different separator style."""
     SINGLE = auto()
     TWO = auto()
+    LLAMA2 = auto()
     DOLLY = auto()
 
 
@@ -53,6 +54,22 @@ class Conversation:
                         ret += "\n\n"
                 else:
                     ret += role + ":\n"
+            return ret
+        elif self.sep_style == SeparatorStyle.LLAMA2:
+            seps = [self.sep, self.sep2]
+            if self.system:
+                ret = self.system
+            else:
+                ret = "[INST] "
+            for i, (role, message) in enumerate(self.messages):
+                tag = self.roles[i % 2]
+                if message:
+                    if i == 0:
+                        ret += message + " "
+                    else:
+                        ret += tag + " " + message + seps[i % 2]
+                else:
+                    ret += tag
             return ret
         else:
             raise ValueError(f"Invalid style: {self.sep_style}")
@@ -204,7 +221,7 @@ Day 1: Go to the coast and visit the San Diego naval base. The base is close to 
 Day 2: Spend the day in the city visiting the San Diego Air and Space Museum, Maritime Museum, and Balboa Park.
 Day 3: Take a day trip to Los Angeles, about a 2 hour drive away. You can visit the city's museums and parks, and you can also see the Hollywood Sign and other landmarks.
 Day 4: Take a day trip to Santa Barbara, about a 2 hour drive away. You can visit the city's beaches and museums, and you can also see the San Marcos Bridge and University of California campus.
-You could also spend the night in San Francisco instead of Los Angeles or Santa Barbara, and then drive back to San Diego the next day. Overall, this would be a fun trip with plenty of options to spend time in the cities or on the beach, and you could even visit multiple national landmarks. 
+You could also spend the night in San Francisco instead of Los Angeles or Santa Barbara, and then drive back to San Diego the next day. Overall, this would be a fun trip with plenty of options to spend time in the cities or on the beach, and you could even visit multiple national landmarks.
 Please let me know if you have any other questions.""")
     ),
     offset=2,
@@ -213,13 +230,28 @@ Please let me know if you have any other questions.""")
     sep2="### End",
 )
 
+# llama2 template
+# reference: https://huggingface.co/blog/codellama#conversational-instructions
+# reference: https://github.com/facebookresearch/llama/blob/1a240688810f8036049e8da36b073f63d2ac552c/llama/generation.py#L212
+conv_llama2 = Conversation(
+    system="[INST] <<SYS>>\nYou are a helpful, respectful and honest assistant.\n<</SYS>>\n\n",
+    roles=("[INST]", "[/INST]"),
+    messages=(),
+    offset=0,
+    sep_style=SeparatorStyle.LLAMA2,
+    sep=" ",
+    sep2=" </s><s>",
+    # sep2=" ",
+)
+
 conv_templates = {
     "conv_one_shot": conv_one_shot,
     "vicuna_v1.1": conv_vicuna_v1_1,
     "koala_v1": conv_koala_v1,
     "dolly": conv_dolly,
     "dolly2": conv_dolly2,
-    "dolly3": conv_dolly3
+    "dolly3": conv_dolly3,
+    "llama2": conv_llama2
 }
 
 
