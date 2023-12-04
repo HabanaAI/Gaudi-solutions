@@ -6,7 +6,7 @@ The notebooks run on a Gaudi system with SynapseAI and Gaudi drivers installed. 
 
 Tutorials will cover training, evaluation, and inferencing for the following models:
 - **Interactive Chat**
-    - [Chat using the Dolly2.0 Large Language Model](https://github.com/HabanaAI/Gaudi-solutions/blob/master/Gaudi_chat/README.md) 
+    - [Chat using the Llama 2 Large Language Model](https://github.com/HabanaAI/Gaudi-solutions/blob/master/Gaudi_chat/README.md) 
 - **Healthcare**
     - [CheXNet: Classification of Thoracic Diseases From Chest X-ray Images](https://github.com/HabanaAI/Gaudi-solutions/blob/master/healthcare/chexnet.ipynb)
 - **FinTech**
