@@ -7,6 +7,7 @@ import warnings
 import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel, AutoConfig, AutoModelForCausalLM, AutoModelForSeq2SeqLM
+from fastchat.serve.modeling_llama_hpu import LlamaForCausalLM
 from fastchat.serve.modeling_gpt_neox_hpu import GPTNeoXForCausalLM
 
 from fastchat.conversation import conv_templates, get_default_conv_template, SeparatorStyle
@@ -39,7 +40,7 @@ def raise_warning_for_old_weights(model_path, model):
 def get_gpu_memory(max_gpus=None):
     gpu_memory = []
     num_gpus = torch.cuda.device_count() if max_gpus is None else min(max_gpus, torch.cuda.device_count())
-    
+
     for gpu_id in range(num_gpus):
         with torch.cuda.device(gpu_id):
             device = torch.cuda.current_device()
@@ -51,9 +52,11 @@ def get_gpu_memory(max_gpus=None):
     return gpu_memory
 
 
-def compute_skip_echo_len(model_name, conv, prompt):
+def compute_skip_echo_len(conv_template, model_name, conv, prompt):
     model_name = model_name.lower()
-    if "chatglm" in model_name:
+    if conv_template == 'llama2':
+        skip_echo_len = len(prompt) + 1 - prompt.count("</s><s>") * 7
+    elif "chatglm" in model_name:
         skip_echo_len = len(conv.messages[-2][1]) + 1
     elif "dolly" in model_name:
         special_toks = ["### Instruction:", "### Response:", "### End"]
@@ -117,6 +120,9 @@ def load_model(model_path, device, num_gpus, max_gpu_memory=None,
             low_cpu_mem_usage=True, **kwargs)
         raise_warning_for_old_weights(model_path, model)
 
+    if model.config.pad_token_id is None:
+        model.config.pad_token_id = model.config.eos_token_id
+
     if load_8bit:
         compress_module(model, device)
 
@@ -163,7 +169,7 @@ def prepare_input(model, max_length, static_shapes=False, **model_args):
 
 @torch.inference_mode()
 def generate_stream(model, tokenizer, params, device,
-                    context_len=2048, stream_interval=2, 
+                    context_len=2048, stream_interval=2,
                     use_cache=False, static_shapes=False,
                     output_tps=False, seed=1):
     prompt = params["prompt"]
@@ -199,7 +205,7 @@ def generate_stream(model, tokenizer, params, device,
 
     t1 = time.time()
     n = 0
-    
+
     for i in range(max_new_tokens):
         n+=1
         out = model(**model_args)
@@ -217,7 +223,7 @@ def generate_stream(model, tokenizer, params, device,
         if temperature < 1e-4:
             token = int(torch.argmax(last_token_logits))
         else:
-            probs = torch.softmax(last_token_logits / temperature, dim=-1)         
+            probs = torch.softmax(last_token_logits / temperature, dim=-1)
             token = int(torch.multinomial(probs, num_samples=1, generator=g))
 
         output_ids.append(token)
@@ -238,7 +244,7 @@ def generate_stream(model, tokenizer, params, device,
 
         if stopped:
             break
-        
+
         next_tokens = torch.logical_not(eos_generated) * token + eos_generated * model.config.pad_token_id
         eos_generated.logical_or_(next_tokens.eq(model.config.eos_token_id))
         next_tokens = next_tokens.unsqueeze(-1)
@@ -257,7 +263,7 @@ def generate_stream(model, tokenizer, params, device,
             model_args['attention_mask'].index_fill_(1, model_args['token_idx'], 1)
             model_args['token_idx'].add_(1)
         else:
-            model_args['attention_mask'] = F.pad(model_args['attention_mask'], (0, 1), value=1)          
+            model_args['attention_mask'] = F.pad(model_args['attention_mask'], (0, 1), value=1)
 
         if device == 'hpu':
             htcore.mark_step()
@@ -313,12 +319,12 @@ def chat_loop(model_path: str, device: str, num_gpus: str,
         if not inp:
             print("exit...")
             break
-        
+
         if inp == 'clear':
             conv = conv_templates[conv_template].copy() if conv_template else get_default_conv_template(model_path).copy()
             os.system('cls' if os.name == 'nt' else 'clear')
             continue
-        
+
         conv.append_message(conv.roles[0], inp)
         conv.append_message(conv.roles[1], None)
 
@@ -329,7 +335,7 @@ def chat_loop(model_path: str, device: str, num_gpus: str,
             generate_stream_func = generate_stream
             prompt = conv.get_prompt()
 
-        skip_echo_len = compute_skip_echo_len(model_path, conv, prompt)
+        skip_echo_len = compute_skip_echo_len(conv_template, model_path, conv, prompt)
 
         params = {
             "model": model_path,
@@ -340,8 +346,8 @@ def chat_loop(model_path: str, device: str, num_gpus: str,
         }
 
         chatio.prompt_for_output(conv.roles[1])
-        output_stream = generate_stream_func(model, tokenizer, params, device, 
-                                             use_cache=use_cache, static_shapes=static_shapes, 
+        output_stream = generate_stream_func(model, tokenizer, params, device,
+                                             use_cache=use_cache, static_shapes=static_shapes,
                                              context_len=context_len, output_tps=output_tps,
                                              seed=seed)
         outputs = chatio.stream_output(output_stream, skip_echo_len)
