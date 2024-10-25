@@ -126,7 +126,7 @@ def inference(model, data, device, args):
     test_loader = torch.utils.data.DataLoader(
         dataset=data,
         batch_size=args.batch_size,
-        num_workers=0,
+        num_workers=8,
         pin_memory=True,
         drop_last=True
     )
@@ -140,27 +140,33 @@ def inference(model, data, device, args):
 
     mean_acc = 0.0
     forward_time = 0
-    loop_start_time = time.time()
+    loop_start_time = 0
     with torch.no_grad():
-        y_true = torch.FloatTensor()
-        y_pred = torch.FloatTensor()
+        print("Warming up...")
+        warmup_iterations = min(len(test_loader), 3)
+        for indx, (images, labels) in enumerate(test_loader):
+            images = images.to(device)
+            outputs = model(images)
+            htcore.mark_step()
+            if warmup_iterations == indx:
+                break
+
+        loop_start_time = time.time()
         with tqdm(desc=f'Evaluation: ', unit='it', total=iterations) as pbar:
             for indx, (images, labels) in enumerate(test_loader, 1):
                 images = images.to(device)
-                labels = labels.to(device)
-
                 forward_start_time = time.time()
                 outputs = model(images)
                 # for perf mesuraments
-                htcore.mark_step()
+                htcore.mark_step(sync=True)
                 forward_time += time.time() - forward_start_time
 
                 pbar.update()
 
                 # accuracy
                 if args.check_accuracy:
-                    y_true = labels.detach().cpu()
-                    y_pred_org = outputs.detach().cpu()
+                    y_true = labels.cpu()
+                    y_pred_org = outputs.cpu()
                     y_pred = (y_pred_org > 0).float()
 
                     acc = accuracy_score(y_true[:], y_pred[:])
@@ -174,13 +180,12 @@ def inference(model, data, device, args):
     return mean_acc, loop_time, forward_time, total_processed_samples_number
 
 
-
 def trainig(model, data, device, args):
     # sampler option is mutually exclusive with shuffle
     train_loader = torch.utils.data.DataLoader(
         dataset=data,
         batch_size=args.batch_size,
-        num_workers=0,
+        num_workers=8,
         pin_memory=True,
         drop_last=True
     )
@@ -204,36 +209,71 @@ def trainig(model, data, device, args):
 
     total_processed_samples_number = train_loader.batch_size * iterations
 
+    if args.use_hpu_graph:
+        image, lable = train_loader.dataset[0]
+        batch_image_shape = [train_loader.batch_size] + list(image.shape)
+        batch_lable_shape = [train_loader.batch_size] + list(lable.shape)
+        static_input = torch.randn(batch_image_shape, device='hpu')
+        static_target = torch.rand(batch_lable_shape, device='hpu')
+
+        # warming up
+        print("Warming up...")
+        s = htcore.hpu.Stream()
+        s.wait_stream(htcore.hpu.current_stream())
+        with htcore.hpu.stream(s):
+            for _ in range(5):
+                optimizer.zero_grad(set_to_none=True)
+                y_pred = model(static_input)
+                loss = criterion(y_pred, static_target)
+                loss.backward()
+                optimizer.step()
+        htcore.hpu.current_stream().wait_stream(s)
+
+        # capturing
+        g = htcore.hpu.HPUGraph()
+        optimizer.zero_grad(set_to_none=True)
+        with htcore.hpu.graph(g):
+            static_y_pred = model(static_input)
+            static_loss = criterion(static_y_pred, static_target)
+            static_loss.backward()
+            optimizer.step()
+
     forward_backward_time = 0
     final_accuracy = 0
     training_loop_start_time = time.time()
-    model.train()
     for epoch in range(epochs):
         # initialize the ground truth and output tensor
-        y_true = torch.FloatTensor()
-        y_pred = torch.FloatTensor()
         mean_loss = 0.0
         mean_acc = 0.0
+        model.train()
         with tqdm(desc=f'Epoch {epoch + 1}: ', unit='it',
                   total=(iterations - epoch * len(train_loader))
             ) as pbar:
             for index, (images, labels) in enumerate(train_loader, 1):
-                images = images.to(device)
-                labels = labels.to(device)
+                if args.use_hpu_graph:
+                    static_input.copy_(images)
+                    static_target.copy_(labels)
 
-                forward_start_time = time.time()
-                outputs = model(images)
+                    forward_start_time = time.time()
+                    g.replay()
+                    forward_backward_time += time.time() - forward_start_time
+                else:
+                    images = images.to(device)
+                    labels = labels.to(device)
 
-                loss = criterion(outputs, labels)
+                    forward_start_time = time.time()
+                    outputs = model(images)
 
-                # backward and optimize
-                optimizer.zero_grad()
+                    loss = criterion(outputs, labels)
 
-                loss.backward()
-                htcore.mark_step()
-                optimizer.step()
-                htcore.mark_step()
-                forward_backward_time += time.time() - forward_start_time
+                    # backward and optimize
+                    optimizer.zero_grad()
+
+                    loss.backward()
+                    htcore.mark_step()
+                    optimizer.step()
+                    htcore.mark_step(sync=True)
+                    forward_backward_time += time.time() - forward_start_time
 
                 pbar.update()
 
@@ -264,16 +304,16 @@ def trainig(model, data, device, args):
                 if epoch == epochs - 1 and index == iterations % len(train_loader):
                     break
 
-        model_dir = args.output_dir + '/model'
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-        models_path = model_dir + f'/checkpoint_{epoch}.pth'
-        torch.save(model.state_dict(), models_path)
-        print(f'Model has been saved: {models_path}')
+        if args.output_dir is not None:
+            model_dir = args.output_dir + '/model'
+            if not os.path.exists(model_dir):
+                os.makedirs(model_dir)
+            models_path = model_dir + f'/checkpoint_{epoch}.pth'
+            torch.save(model.state_dict(), models_path)
+            print(f'Model has been saved: {models_path}')
 
     trainig_loop_time = time.time() - training_loop_start_time
     return final_accuracy, trainig_loop_time, forward_backward_time, total_processed_samples_number
-
 
 
 def main(args):
@@ -302,7 +342,6 @@ def main(args):
         model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
 
     model = model.to(device)
-    # model = wrap_in_hpu_graph(model)
 
     accuracy = None
     loop_time = None
@@ -327,6 +366,12 @@ def main(args):
             image_list_file=test_image_list_file,
             transform=normalize_transform,
         )
+        if args.use_hpu_graph:
+            model = wrap_in_hpu_graph(model,
+                                      asynchronous=True,
+                                      disable_tensor_cache=True
+                                )
+
         result = inference(model, test_data, device, args)
         accuracy, loop_time, forward_time, total_processed_samples_number = result
 
@@ -336,12 +381,13 @@ def main(args):
     if args.check_accuracy:
         print(f"Accuracy: {accuracy:.3f}")
     print(f"Total processed images number: {total_processed_samples_number}")
-    print(f"Loop time: {loop_time:.3f} (s)")
+    print(f"Total loop time: {loop_time:.3f} (s)")
+    print(f"\tthroughput: {(total_processed_samples_number / loop_time):.3f} (img/s)")
     if forward_backward_time is not None:
         print(f"Average (forward + backward) time: {forward_backward_time*100:.3f} (ms)")
     if forward_time is not None:
         print(f"Average forward time: {forward_time*100:.3f} (ms)")
-    print(f"Throughput: {throughput:.3f} (img/s)")
+    print(f"\tthroughput: {throughput:.3f} (img/s)")
 
     #model = htcore.hpu_set_inference_env(model) #
 
@@ -362,6 +408,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--hpu', action='store_true', default=False)
     parser.add_argument('--use_lazy_mode', action='store_true', default=False)
+    parser.add_argument('--use_hpu_graph', action='store_true', default=False)
 
     args = parser.parse_args()
 
