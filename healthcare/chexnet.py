@@ -114,7 +114,9 @@ pos_weight = torch.from_numpy(pos_weight).float()
 class CheXNet(nn.Module):
     def __init__(self, out_size):
         super(CheXNet, self).__init__()
-        self.densenet121 = torchvision.models.densenet121(weights=torchvision.models.DenseNet121_Weights.IMAGENET1K_V1)
+        self.densenet121 = torchvision.models.densenet121(
+            weights=torchvision.models.DenseNet121_Weights.IMAGENET1K_V1
+        )
         num_features = self.densenet121.classifier.in_features
         self.densenet121.classifier = nn.Linear(num_features, out_size)
 
@@ -122,13 +124,48 @@ class CheXNet(nn.Module):
         x = self.densenet121(x)
         return x
 
+
+IS_DISTRIBUTED = False
+WORLD_SIZE = 1
+RANK = 0
+LOCAL_RANK = 0
+def setup_distributed(world_size):
+    global IS_DISTRIBUTED, WORLD_SIZE, RANK, LOCAL_RANK
+
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12340'
+
+    from habana_frameworks.torch.distributed.hccl import initialize_distributed_hpu
+    WORLD_SIZE, RANK, LOCAL_RANK = initialize_distributed_hpu()
+    if world_size <= WORLD_SIZE:
+        WORLD_SIZE = world_size
+    else:
+        raise RuntimeError("Number of devices is bigger than actual WORLD_SIZE.")
+
+
+    #Import the distributed package for HCCL, set the backend to HCCL
+    import habana_frameworks.torch.distributed.hccl
+    torch.distributed.init_process_group(backend='hccl', rank=RANK, world_size=WORLD_SIZE)
+
+    IS_DISTRIBUTED = True
+
+
+def destroy_distributed():
+    torch.distributed.destroy_process_group()
+
+
 def inference(model, data, device, args):
+    sampler = None
+    if IS_DISTRIBUTED:
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            data)
     test_loader = torch.utils.data.DataLoader(
         dataset=data,
         batch_size=args.batch_size,
         num_workers=8,
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
+        sampler=sampler
     )
 
     model.eval()
@@ -140,9 +177,10 @@ def inference(model, data, device, args):
 
     mean_acc = 0.0
     forward_time = 0
-    loop_start_time = 0
+    loop_time_start = 0
     with torch.no_grad():
-        print("Warming up...")
+        if LOCAL_RANK == 0:
+            print("Warming up...")
         warmup_iterations = min(len(test_loader), 3)
         for indx, (images, labels) in enumerate(test_loader):
             images = images.to(device)
@@ -151,7 +189,7 @@ def inference(model, data, device, args):
             if warmup_iterations == indx:
                 break
 
-        loop_start_time = time.time()
+        loop_time_start = time.time()
         with tqdm(desc=f'Evaluation: ', unit='it', total=iterations) as pbar:
             for indx, (images, labels) in enumerate(test_loader, 1):
                 images = images.to(device)
@@ -175,19 +213,25 @@ def inference(model, data, device, args):
                 if indx == iterations:
                     break
 
-    loop_time = time.time() - loop_start_time
+    mean_acc /= iterations
+    loop_time_finish = time.time()
 
-    return mean_acc, loop_time, forward_time, total_processed_samples_number
+    return mean_acc, loop_time_start, loop_time_finish, forward_time, total_processed_samples_number
 
 
 def trainig(model, data, device, args):
     # sampler option is mutually exclusive with shuffle
+    sampler = None
+    if IS_DISTRIBUTED:
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            data)
     train_loader = torch.utils.data.DataLoader(
         dataset=data,
         batch_size=args.batch_size,
         num_workers=8,
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
+        sampler=sampler
     )
 
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
@@ -217,7 +261,8 @@ def trainig(model, data, device, args):
         static_target = torch.rand(batch_lable_shape, device='hpu')
 
         # warming up
-        print("Warming up...")
+        if LOCAL_RANK == 0:
+            print("Warming up...")
         s = htcore.hpu.Stream()
         s.wait_stream(htcore.hpu.current_stream())
         with htcore.hpu.stream(s):
@@ -239,16 +284,20 @@ def trainig(model, data, device, args):
             optimizer.step()
 
     forward_backward_time = 0
-    final_accuracy = 0
-    training_loop_start_time = time.time()
+    loop_time_start = time.time()
     for epoch in range(epochs):
-        # initialize the ground truth and output tensor
+        if IS_DISTRIBUTED:
+            sampler.set_epoch(epoch)
+
         mean_loss = 0.0
         mean_acc = 0.0
+        final_accuracy = 0
         model.train()
-        with tqdm(desc=f'Epoch {epoch + 1}: ', unit='it',
-                  total=(iterations - epoch * len(train_loader))
-            ) as pbar:
+        tqdm_total = len(train_loader)
+        if epoch == epochs - 1 and iterations % len(train_loader) != 0:
+            tqdm_total = iterations % len(train_loader)
+
+        with tqdm(desc=f'Epoch {epoch + 1}: ', unit='it', total=tqdm_total) as pbar:
             for index, (images, labels) in enumerate(train_loader, 1):
                 if args.use_hpu_graph:
                     static_input.copy_(images)
@@ -280,43 +329,52 @@ def trainig(model, data, device, args):
                 # mid-training loss and accuracy
                 if args.check_accuracy:
                     y_true = labels.detach().cpu()
-                    y_pred_org = outputs.detach().cpu()
+                    if args.use_hpu_graph:
+                        y_pred_org = static_y_pred.detach().cpu()
+                    else:
+                        y_pred_org = outputs.detach().cpu()
                     y_pred = (y_pred_org > 0).float()
                     loss_val = loss.item()
 
                     mean_loss += loss_val
                     acc = accuracy_score(y_true[:], y_pred[:])
                     mean_acc += acc
-                    final_accuracy = mean_acc
+                    final_accuracy += acc
 
-                    if index % 10 == 0:
+                    if LOCAL_RANK == 0 and index % 10 == 0:
                         print()
                         torch.set_printoptions(precision=2)
                         print('\repoch %3d/%3d batch %5d/%5d' % \
                             (epoch+1, epochs, index, len(train_loader)),
                             end=''
                         )
+                        mean_loss /= index
+                        mean_acc /= index
                         print(f' Train loss {mean_loss}', end='')
                         print(f' Accuracy: {mean_acc}')
-                        mean_loss = 0
-                        mean_acc = 0
 
                 if epoch == epochs - 1 and index == iterations % len(train_loader):
-                    break
+                    break 
 
-        if args.output_dir is not None:
+        if LOCAL_RANK == 0 and args.output_dir is not None:
             model_dir = args.output_dir + '/model'
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
-            models_path = model_dir + f'/checkpoint_{epoch}.pth'
+            models_path = model_dir + f'/checkpoint_{epoch + 1}.pth'
             torch.save(model.state_dict(), models_path)
-            print(f'Model has been saved: {models_path}')
+            print(f'\nModel has been saved: {models_path}')
 
-    trainig_loop_time = time.time() - training_loop_start_time
-    return final_accuracy, trainig_loop_time, forward_backward_time, total_processed_samples_number
+        final_accuracy /= tqdm_total
+
+    loop_time_finish = time.time()
+
+    return final_accuracy, loop_time_start, loop_time_finish, forward_backward_time, total_processed_samples_number
 
 
 def main(args):
+    if args.devices > 1:
+        setup_distributed(args.devices)
+
     # ./images - directory containing image files
     # ./labels - directory containing .txt files with list of image names and their respective
     #            ground truth labels on every row
@@ -339,15 +397,31 @@ def main(args):
 
     model = CheXNet(CLASS_COUNT)
     if args.model_path:
-        model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
+        checkpoint = torch.load(args.model_path, map_location='cpu', weights_only=True)
+        try:
+            model.load_state_dict(checkpoint)
+        except RuntimeError:
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in checkpoint.items():
+                name = k[7:] # remove `module.`
+                new_state_dict[name] = v
+            # load params
+            model.load_state_dict(new_state_dict)
 
     model = model.to(device)
 
+    if IS_DISTRIBUTED:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        model = DDP(model, bucket_cap_mb=100, broadcast_buffers=False, gradient_as_bucket_view=True)
+
     accuracy = None
-    loop_time = None
-    forward_backward_time = None
-    forward_time = None
-    throughput = None
+    loop_time_start = None
+    loop_time_finish = None
+    avg_forward_backward_time = None
+    avg_forward_time = None
+    total_forward_backward_time = None
+    total_forward_time = None
     if args.training:
         # train data set object
         train_data = ChestXrayData(
@@ -356,46 +430,82 @@ def main(args):
             transform=normalize_transform,
         )
         result = trainig(model, train_data, device, args)
-        accuracy, loop_time, forward_backward_time, total_processed_samples_number = result
+        accuracy, loop_time_start, loop_time_finish, total_forward_backward_time, total_processed_samples_number = result
 
-        throughput = total_processed_samples_number / forward_backward_time
-        forward_backward_time /= total_processed_samples_number
-    elif args.inference:
+        avg_forward_backward_time = total_forward_backward_time / total_processed_samples_number
+    if args.inference:
         test_data = ChestXrayData(
             data_dir=images_dir,
             image_list_file=test_image_list_file,
             transform=normalize_transform,
         )
         if args.use_hpu_graph:
+            if IS_DISTRIBUTED:
+                raise RuntimeError("`--use_hpu_graph` can't be used with multiple devices.")
             model = wrap_in_hpu_graph(model,
                                       asynchronous=True,
                                       disable_tensor_cache=True
                                 )
 
         result = inference(model, test_data, device, args)
-        accuracy, loop_time, forward_time, total_processed_samples_number = result
+        accuracy, loop_time_start, loop_time_finish, total_forward_time, total_processed_samples_number = result
 
-        throughput = total_processed_samples_number / forward_time
-        forward_time /= total_processed_samples_number
+        avg_forward_time = total_forward_time / total_processed_samples_number
 
-    if args.check_accuracy:
-        print(f"Accuracy: {accuracy:.3f}")
-    print(f"Total processed images number: {total_processed_samples_number}")
-    print(f"Total loop time: {loop_time:.3f} (s)")
-    print(f"\tthroughput: {(total_processed_samples_number / loop_time):.3f} (img/s)")
-    if forward_backward_time is not None:
-        print(f"Average (forward + backward) time: {forward_backward_time*100:.3f} (ms)")
-    if forward_time is not None:
-        print(f"Average forward time: {forward_time*100:.3f} (ms)")
-    print(f"\tthroughput: {throughput:.3f} (img/s)")
+    loop_time = loop_time_finish - loop_time_start
+    if IS_DISTRIBUTED:
+        # reduce metrics
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
 
-    #model = htcore.hpu_set_inference_env(model) #
+        if accuracy is not None:
+            accuracy = comm.reduce(accuracy)
+            if LOCAL_RANK == 0:
+                accuracy /= WORLD_SIZE
+        
+        if avg_forward_time is not None:
+            avg_forward_time = comm.reduce(avg_forward_time)
+            if LOCAL_RANK == 0:
+                avg_forward_time /= WORLD_SIZE
+        
+        if avg_forward_backward_time is not None:
+            avg_forward_backward_time = comm.reduce(avg_forward_backward_time)
+            if LOCAL_RANK == 0:
+                avg_forward_backward_time /= WORLD_SIZE
+        
+        if total_forward_time is not None:
+            total_forward_time = comm.reduce(total_forward_time)
+
+        if total_forward_backward_time is not None:
+            total_forward_backward_time = comm.reduce(total_forward_backward_time)
+
+        total_processed_samples_number = comm.reduce(total_processed_samples_number)
+
+        loop_time_finish = comm.reduce(loop_time_finish, MPI.MAX)
+        loop_time_start = comm.reduce(loop_time_start, MPI.MIN)
+        if LOCAL_RANK == 0:
+            loop_time = loop_time_finish - loop_time_start
+
+    if LOCAL_RANK == 0:
+        if args.check_accuracy:
+            print(f"Accuracy: {accuracy:.3f}")
+        print(f"Total processed images number: {total_processed_samples_number}")
+        print(f"Total loop time: {loop_time:.3f} (s)")
+        print(f"\tthroughput: {(total_processed_samples_number / loop_time):.3f} (img/s)")
+        if avg_forward_backward_time is not None:
+            print(f"Average (forward + backward) time: {avg_forward_backward_time*100:.3f} (ms)")
+            print(f"\tthroughput: {total_processed_samples_number / total_forward_backward_time:.3f} (img/s)")
+        if avg_forward_time is not None:
+            print(f"Average forward time: {avg_forward_time*100:.3f} (ms)")
+            print(f"\tthroughput: {total_processed_samples_number / total_forward_time:.3f} (img/s)")
+
+    if IS_DISTRIBUTED:
+        destroy_distributed()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--env_world_size', default='WORLD_SIZE', type=str)
-    # parser.add_argument('--env_rank', default='LOCAL_RANK', type=str)
+    parser.add_argument('--devices', default='1', type=int)
     parser.add_argument('--training', action='store_true', default=False)
     parser.add_argument('--inference', action='store_true', default=False)
     parser.add_argument('--check_accuracy', action='store_true', default=False)
@@ -412,4 +522,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    main(args)
+    try:
+        main(args)
+    except Exception as e:
+        if IS_DISTRIBUTED:
+            destroy_distributed()
+        raise e
